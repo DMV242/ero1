@@ -1,8 +1,8 @@
-# Tournées de déneigeuses — la théorie, expliquée simplement
+# Tournées de déneigeuses — les fondements théoriques
 
 *Projet : « Déneiger Montréal » (ERO1). Objectif : router les déneigeuses pour que chaque rue soit dégagée, au coût le plus bas possible.*
 
-Ce document explique les idées du projet en langage simple. Aucun prérequis en théorie des graphes : on construit tout à partir de zéro, avec de petits exemples concrets.
+Ce document présente les fondements théoriques du projet, à destination de l'encadrement comme de l'équipe. Aucun prérequis en théorie des graphes n'est nécessaire : on construit tout à partir de zéro, avec de petits exemples concrets. Les sections se lisent dans l'ordre, chacune s'appuyant sur la précédente.
 
 ---
 
@@ -10,7 +10,7 @@ Ce document explique les idées du projet en langage simple. Aucun prérequis en
 
 Une déneigeuse doit parcourir **chaque rue** d'un secteur au moins une fois et revenir à son point de départ, en gaspillant le moins de temps et d'argent possible.
 
-C'est tout. Le reste de ce document explique comment transformer cet objectif simple en quelque chose qu'un ordinateur peut résoudre exactement.
+C'est tout. Le reste de ce document vous explique comment on transforme cet objectif simple en quelque chose qu'un ordinateur peut résoudre exactement.
 
 ---
 
@@ -18,10 +18,10 @@ C'est tout. Le reste de ce document explique comment transformer cet objectif si
 
 Une carte de rues est désordonnée. Pour raisonner dessus, on la réduit à deux types d'objets :
 
-- **Sommets** — les intersections (là où les rues se croisent). Vois-les comme des points.
-- **Liens** — les tronçons de rue qui relient deux intersections. Vois-les comme des traits entre les points.
+- **Sommets** — les intersections (là où les rues se croisent). Voyez-les comme des points.
+- **Liens** — les tronçons de rue qui relient deux intersections. Voyez-les comme des traits entre les points.
 
-Cette image épurée en points-et-traits s'appelle un **graphe**. Le problème de déneigement consiste à couvrir les **traits** (les rues), pas à visiter les **points** (les intersections). Cette distinction est importante : on s'occupe de déneiger des routes, pas de se tenir à des carrefours.
+Cette image épurée en points-et-traits s'appelle un **graphe**. Le problème de déneigement consiste à couvrir les **traits** (les rues), pas à visiter les **points** (les intersections). Gardez bien cette distinction en tête : on s'occupe de déneiger des routes, pas de se tenir à des carrefours.
 
 Il existe deux sortes de liens, et la différence entre eux est tout l'enjeu :
 
@@ -36,17 +36,17 @@ Chaque lien porte aussi un **coût** — en gros, ce qu'il en coûte de parcouri
 
 ## 3. Quand une déneigeuse peut-elle tout déblayer et rentrer en une seule boucle propre ?
 
-Imagine le cas idéal : la déneigeuse parcourt chaque rue **exactement une fois** et revient au départ, sans jamais repasser sur une rue. Un tel parcours s'appelle un **circuit eulérien** (du nom du mathématicien Euler).
+Imaginez le cas idéal : la déneigeuse parcourt chaque rue **exactement une fois** et revient au départ, sans jamais repasser sur une rue. Un tel parcours s'appelle un **circuit eulérien** (du nom du mathématicien Euler).
 
 Quand une telle boucle parfaite est-elle possible ? Il existe une règle d'une élégante simplicité.
 
 ### Pour une carte composée uniquement de rues à double sens
 
-Regarde chaque intersection et compte combien de rues la touchent. Ce nombre est le **degré** de l'intersection.
+Regardez chaque intersection et comptez combien de rues la touchent. Ce nombre est le **degré** de l'intersection.
 
 > **La règle :** une boucle parfaite existe si et seulement si **chaque intersection a un degré pair** (2, 4, 6 rues qui la touchent — jamais 3 ni 5).
 
-**Pourquoi pair ?** Imagine la déneigeuse traversant une intersection. Chaque fois qu'elle arrive par une rue, elle doit repartir par une autre. Arriver–repartir, arriver–repartir : les rues s'utilisent par paires. Si une intersection a un nombre impair de rues, à un moment la déneigeuse arrive et il ne reste plus de rue libre pour repartir — elle se retrouve bloquée. Un degré pair partout = la déneigeuse peut toujours continuer à circuler.
+**Pourquoi pair ?** Imaginez la déneigeuse traversant une intersection. Chaque fois qu'elle arrive par une rue, elle doit repartir par une autre. Arriver–repartir, arriver–repartir : les rues s'utilisent par paires. Si une intersection a un nombre impair de rues, à un moment la déneigeuse arrive et il ne reste plus de rue libre pour repartir — elle se retrouve bloquée. Un degré pair partout = la déneigeuse peut toujours continuer à circuler.
 
 ### Pour une carte composée uniquement de rues à sens unique
 
@@ -136,11 +136,11 @@ Le PL nous donne un décompte : *rue A→B une fois, rue E→D deux fois,* etc. 
 
 Convertir le décompte en itinéraire ordonné revient à trouver le vrai circuit eulérien dans le graphe. La méthode standard est l'**algorithme de Hierholzer**, et l'idée est simple :
 
-1. Pars de n'importe où et continue simplement à parcourir des rues inutilisées jusqu'à revenir à ton point de départ. Comme chaque intersection est équilibrée (le PL l'a garanti), tu peux *toujours* continuer jusqu'à ce que la boucle se referme — tu ne peux jamais te retrouver bloqué en cours de route.
-2. S'il reste des rues inutilisées, trouve un point de ta boucle actuelle qui a encore des rues inutilisées, et trace une *deuxième* boucle à partir de là.
-3. Recolle les boucles ensemble. Répète jusqu'à ce que chaque rue soit utilisée.
+1. Partez de n'importe où et continuez simplement à parcourir des rues inutilisées jusqu'à revenir à votre point de départ. Comme chaque intersection est équilibrée (le PL l'a garanti), on peut *toujours* continuer jusqu'à ce que la boucle se referme — on ne peut jamais se retrouver bloqué en cours de route.
+2. S'il reste des rues inutilisées, trouvez un point de la boucle actuelle qui a encore des rues inutilisées, et tracez une *deuxième* boucle à partir de là.
+3. Recollez les boucles ensemble. Répétez jusqu'à ce que chaque rue soit utilisée.
 
-Le résultat final est un seul grand parcours continu : une séquence propre d'intersections qui commence et se termine au dépôt — **exactement le format que tu chargerais dans une déneigeuse.**
+Le résultat final est un seul grand parcours continu : une séquence propre d'intersections qui commence et se termine au dépôt — **exactement le format que vous chargeriez dans une déneigeuse.**
 
 > **Pourquoi la déneigeuse ne peut-elle pas se retrouver coincée en cours de route ?** Grâce, encore une fois, à la conservation du flot. Chaque fois que le parcours entre dans une intersection, il a consommé une rue entrante — et l'équilibre garantit qu'il existe une rue sortante correspondante pour repartir. Le *seul* endroit où le parcours peut finir par manquer de coups possibles, c'est le point de départ, et c'est pourquoi il se referme toujours en boucle. Le PL prépare un graphe équilibré ; Hierholzer en récolte le parcours. Les deux étapes sont indissociables.
 
@@ -163,7 +163,7 @@ En réunissant tout, voici le trajet depuis une vraie carte jusqu'à un itinéra
    Algorithme de Hierholzer  -->  itinéraire ordonné que la déneigeuse suit
 ```
 
-Le même pipeline tourne sans changement sur les quatre secteurs (Outremont, Verdun, Anjou, RDP-PAT). La *méthode* est générique ; seules les *données* changent d'un secteur à l'autre.
+Le même pipeline tourne sans changement sur les quatre secteurs (Outremont, Verdun, Anjou, RDP-PAT). La *méthode* est générique ; seules les *données* changent d'un secteur à l'autre. Traiter un nouveau secteur ne demande donc aucune modification du code : il suffit de changer l'entrée.
 
 ---
 
@@ -197,6 +197,8 @@ La seule donnée géométrique dont on a besoin sur la carte est donc la **longu
 ---
 
 ## 10. Le résumé en une minute
+
+L'essentiel à retenir :
 
 - Une carte devient un **graphe** : des points (intersections) et des traits (rues), où les rues à double sens sont des **arêtes** et les rues à sens unique des **arcs**.
 - Une déneigeuse ne peut tout dégager en une boucle parfaite que si chaque intersection est **équilibrée** (degré pair, ou entrant = sortant).

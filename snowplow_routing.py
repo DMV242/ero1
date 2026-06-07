@@ -20,21 +20,9 @@ from collections import defaultdict
 from ortools.linear_solver import pywraplp
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-COST_PER_KM = 1.1       
-COST_PER_HOUR = 1.1     
-SPEED_KMH = 10.0        
+COST_PER_KM = 1.1
+COST_PER_HOUR = 1.1
+SPEED_KMH = 10.0
 
 
 def segment_cost(length_m):
@@ -42,9 +30,6 @@ def segment_cost(length_m):
     length_km = length_m / 1000.0
     time_h = length_km / SPEED_KMH
     return COST_PER_KM * length_km + COST_PER_HOUR * time_h
-
-
-
 
 
 def solve_sector(vertices, edges, arcs, backend="CBC"):
@@ -58,62 +43,43 @@ def solve_sector(vertices, edges, arcs, backend="CBC"):
     plow drives arc i -> j. Returns None if no feasible solution exists.
     """
 
-    
-    
-    
-    
-    cost = {}            
-    edge_pairs = []      
+    cost = {}
+    edge_pairs = []
 
-    for (i, j, c) in edges:
+    for i, j, c in edges:
         cost[(i, j)] = c
-        cost[(j, i)] = c          
+        cost[(j, i)] = c
         edge_pairs.append((i, j))
 
-    for (i, j, c) in arcs:        
+    for i, j, c in arcs:
         cost[(i, j)] = c
 
-    
     solver = pywraplp.Solver.CreateSolver(backend)
     if not solver:
         return None
     infinity = solver.infinity()
 
-    
-    
-    
     x = {(i, j): solver.IntVar(0, infinity, f"x_{i}_{j}") for (i, j) in cost}
 
-    
-    
-    for (i, j) in edge_pairs:
+    for i, j in edge_pairs:
         solver.Add(x[(i, j)] + x[(j, i)] >= 1)
-    
-    for (i, j, c) in arcs:
+
+    for i, j, c in arcs:
         solver.Add(x[(i, j)] >= 1)
 
-    
-    
-    
-    
     for v in vertices:
         inflow = solver.Sum([x[(i, j)] for (i, j) in cost if j == v])
         outflow = solver.Sum([x[(i, j)] for (i, j) in cost if i == v])
         solver.Add(inflow == outflow)
 
-    
     solver.Minimize(solver.Sum([cost[(i, j)] * x[(i, j)] for (i, j) in cost]))
 
-    
     status = solver.Solve()
     if status not in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
         return None
 
     passes = {(i, j): int(round(x[(i, j)].solution_value())) for (i, j) in cost}
     return solver.Objective().Value(), passes
-
-
-
 
 
 def build_route(passes, start):
@@ -145,16 +111,13 @@ def build_route(passes, start):
                 nxt = j
                 break
         if nxt is not None:
-            remaining[(v, nxt)] -= 1     
-            stack.append(nxt)            
+            remaining[(v, nxt)] -= 1
+            stack.append(nxt)
         else:
-            route.append(stack.pop())    
+            route.append(stack.pop())
 
     route.reverse()
     return route
-
-
-
 
 
 def load_sector_osmnx(place=None, point=None, radius_m=None):
@@ -165,6 +128,7 @@ def load_sector_osmnx(place=None, point=None, radius_m=None):
     Returns an OSMnx MultiDiGraph. Run on a machine with internet access.
     """
     import osmnx as ox
+
     ox.settings.use_cache = True
     if place is not None:
         return ox.graph_from_place(place, network_type="drive")
@@ -191,31 +155,28 @@ def osmnx_to_graph(G):
 
     arc_cost = {}
     for u, v, data in G.edges(data=True):
-        length_m = data.get("length", 0.0)   
+        length_m = data.get("length", 0.0)
         arc_cost[(u, v)] = segment_cost(length_m)
 
     edges, arcs, seen = [], [], set()
     for (u, v), c in arc_cost.items():
         if (u, v) in seen:
             continue
-        if (v, u) in arc_cost:                
+        if (v, u) in arc_cost:
             edges.append((u, v, round(c, 4)))
             seen.add((u, v))
             seen.add((v, u))
-        else:                                 
+        else:
             arcs.append((u, v, round(c, 4)))
             seen.add((u, v))
 
     return vertices, edges, arcs
 
 
-
-
-
 if __name__ == "__main__":
     vertices = ["A", "B", "C", "D", "E"]
 
-    edges = [                 
+    edges = [
         ("A", "B", 4),
         ("B", "C", 5),
         ("A", "D", 6),
@@ -224,7 +185,7 @@ if __name__ == "__main__":
         ("B", "E", 7),
     ]
 
-    arcs = [                  
+    arcs = [
         ("D", "B", 2),
     ]
 
