@@ -85,6 +85,7 @@ route = build_route(passes, start=vertices[0])
 ero1/
 ├── snowplow_routing.py   # Solveur + utilitaires OSM
 ├── THEORY.md             # Explication de la théorie (sans prérequis)
+├── Limits.md             # Limites connues et correctifs à appliquer
 ├── requirements.txt
 └── README.md
 ```
@@ -96,3 +97,7 @@ ero1/
 3. **Hierholzer** — le multiensemble d'arcs produit par l'ILP est converti en une séquence ordonnée de rues.
 
 Voir [THEORY.md](THEORY.md) pour une explication détaillée sans prérequis mathématiques.
+
+## Limites connues
+
+Certaines limites sont déjà identifiées (notamment la forte connexité du graphe OSMnx, qui peut faire échouer le solveur ILP). Voir [Limits.md](Limits.md) : ce sont des points connus, à discuter dans le rapport de fin.
