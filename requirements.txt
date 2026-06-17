@@ -1,2 +1,8 @@
 ortools
 ruff
+networkx
+pytest
+matplotlib
+geopandas
+streamlit
+pandas

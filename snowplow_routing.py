@@ -26,13 +26,15 @@ SPEED_KMH = 10.0
 
 
 def segment_cost(length_m):
-    """Cost of a single street segment from its length in metres."""
+    """Cost of a single street segment from its length in metres.
+
+    A missing OSM `length` defaults to 0 (near-universal on `drive` networks)."""
     length_km = length_m / 1000.0
     time_h = length_km / SPEED_KMH
     return COST_PER_KM * length_km + COST_PER_HOUR * time_h
 
 
-def solve_sector(vertices, edges, arcs, backend="CBC"):
+def solve_sector(vertices, edges, arcs, required=None, backend="CBC"):
     """
     vertices : list of vertex ids, e.g. ["A", "B", "C", "D", "E"]
     edges    : TWO-WAY streets, list of (i, j, cost)
@@ -54,6 +56,11 @@ def solve_sector(vertices, edges, arcs, backend="CBC"):
     for i, j, c in arcs:
         cost[(i, j)] = c
 
+    def is_required(i, j):
+        if required is None:
+            return True
+        return (i, j) in required or (j, i) in required
+
     solver = pywraplp.Solver.CreateSolver(backend)
     if not solver:
         return None
@@ -62,10 +69,12 @@ def solve_sector(vertices, edges, arcs, backend="CBC"):
     x = {(i, j): solver.IntVar(0, infinity, f"x_{i}_{j}") for (i, j) in cost}
 
     for i, j in edge_pairs:
-        solver.Add(x[(i, j)] + x[(j, i)] >= 1)
+        if is_required(i, j):
+            solver.Add(x[(i, j)] + x[(j, i)] >= 1)
 
     for i, j, c in arcs:
-        solver.Add(x[(i, j)] >= 1)
+        if is_required(i, j):
+            solver.Add(x[(i, j)] >= 1)
 
     for v in vertices:
         inflow = solver.Sum([x[(i, j)] for (i, j) in cost if j == v])
@@ -82,27 +91,16 @@ def solve_sector(vertices, edges, arcs, backend="CBC"):
     return solver.Objective().Value(), passes
 
 
-def build_route(passes, start):
-    """
-    Turn the LP's arc multiset into an ORDERED sequence of vertices
-    (an Eulerian circuit) using Hierholzer's algorithm.
-
-    passes : dict {(i, j): number of passes}  -- output of solve_sector
-    start  : starting vertex (the plow returns here at the end)
-    Returns a list of vertices [start, ..., start].
-
-    Assumes the augmented graph is connected and balanced. Flow conservation
-    guarantees balance; connectivity must hold in the input data.
-    """
-    remaining = {arc: n for arc, n in passes.items() if n > 0}
-
+def _hierholzer(remaining, start):
+    """Eulerian circuit through the component reachable from `start`, consuming
+    arcs from `remaining` (a dict {(i,j): count}) in place."""
     out_arcs = defaultdict(list)
     for (i, j), n in remaining.items():
-        out_arcs[i].append(j)
+        if n > 0:
+            out_arcs[i].append(j)
 
     route = []
     stack = [start]
-
     while stack:
         v = stack[-1]
         nxt = None
@@ -115,9 +113,49 @@ def build_route(passes, start):
             stack.append(nxt)
         else:
             route.append(stack.pop())
-
     route.reverse()
     return route
+
+
+def build_route(passes, start):
+    """Single closed Eulerian circuit from `start` (Hierholzer).
+
+    passes : dict {(i, j): number of passes}  -- output of solve_sector
+    start  : starting vertex (the plow returns here at the end)
+    Returns a list of vertices [start, ..., start].
+
+    Assumes the driven arcs form ONE connected, balanced component (true for the
+    uniform Chinese Postman over a strongly connected sector). For a sparse Rural
+    Postman phase whose driven arcs may be disconnected, use build_route_all."""
+    remaining = {arc: n for arc, n in passes.items() if n > 0}
+    return _hierholzer(remaining, start)
+
+
+def build_route_all(passes):
+    """Ordered route covering EVERY driven arc, even when they form several
+    disconnected balanced circuits (the usual case for a sparse Rural Postman
+    phase). Returns the concatenation of one Eulerian circuit per component; for
+    a connected driven graph this equals build_route. Transitions between
+    components are not explicitly routed (the plow is assumed to deadhead)."""
+    remaining = {arc: n for arc, n in passes.items() if n > 0}
+    full = []
+    while any(n > 0 for n in remaining.values()):
+        start = next(arc[0] for arc, n in remaining.items() if n > 0)
+        full.extend(_hierholzer(remaining, start))
+    return full
+
+
+def largest_strongly_connected_subgraph(G):
+    """Return G reduced to its largest strongly connected component (a copy).
+
+    Guarantees the ILP flow-conservation is feasible, and lets maps display
+    exactly what is routed (same reduction everywhere)."""
+    import networkx as nx
+
+    if G.number_of_nodes() == 0:
+        return G
+    scc = max(nx.strongly_connected_components(G), key=len)
+    return G.subgraph(scc).copy()
 
 
 def load_sector_osmnx(place=None, point=None, radius_m=None):
@@ -140,7 +178,7 @@ def load_sector_osmnx(place=None, point=None, radius_m=None):
 
 def osmnx_to_graph(G):
     """
-    Convert an OSMnx MultiDiGraph into (vertices, edges, arcs) for the solver.
+    Convert an OSMnx MultiDiGraph into (vertices, edges, arcs, lengths) for the solver.
 
     OSMnx already returns a DIRECTED graph: a two-way street appears as TWO
     opposite arcs; a one-way street as a single arc. We regroup by vertex pair:
@@ -150,13 +188,22 @@ def osmnx_to_graph(G):
     This rule is the structural enforcement of the traffic code: a one-way
     street never gets a reverse variable, so the plow can never be routed
     against the legal direction.
+
+    The raw OSM graph is not always strongly connected: one-way streets can
+    isolate nodes (in-only or out-only), which makes the ILP flow-conservation
+    constraint infeasible (solve_sector would return None). We therefore keep
+    only the largest strongly connected component, which is always solver-ready.
     """
+    G = largest_strongly_connected_subgraph(G)
+
     vertices = list(G.nodes())
 
     arc_cost = {}
+    lengths = {}
     for u, v, data in G.edges(data=True):
         length_m = data.get("length", 0.0)
         arc_cost[(u, v)] = segment_cost(length_m)
+        lengths[(u, v)] = length_m
 
     edges, arcs, seen = [], [], set()
     for (u, v), c in arc_cost.items():
@@ -170,7 +217,7 @@ def osmnx_to_graph(G):
             arcs.append((u, v, round(c, 4)))
             seen.add((u, v))
 
-    return vertices, edges, arcs
+    return vertices, edges, arcs, lengths
 
 
 if __name__ == "__main__":

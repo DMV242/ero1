@@ -83,11 +83,26 @@ route = build_route(passes, start=vertices[0])
 
 ```
 ero1/
-├── snowplow_routing.py   # Solveur + utilitaires OSM
-├── THEORY.md             # Explication de la théorie (sans prérequis)
-├── Limits.md             # Limites connues et correctifs à appliquer
-├── requirements.txt
-└── README.md
+├── AUTHORS               # auteurs
+├── snowplow_routing.py   # solveur (Postier Rural) + utilitaires OSM
+├── priorities.py         # classification prioritaire (3 scénarios)
+├── cost_model.py         # modèle de coût f(N)
+├── scenarios.py          # orchestration 2 phases + indicateurs + exports
+├── demo.py               # script de démonstration
+├── app.py                # interface graphique Streamlit
+├── sectors/              # résultats par secteur (JSON + cartes PNG)
+├── comparaison_scenarios.csv
+├── THEORY.md / Limits.md / requirements.txt / README.md
+└── tests/                # tests unitaires (pytest)
+```
+
+## Lancer
+
+```bash
+python demo.py                 # démonstration (Outremont, scénario artériel)
+python scenarios.py --all      # calcule les 4 secteurs -> sectors/ + comparaison_scenarios.csv
+streamlit run app.py           # interface graphique (après --all)
+python -m pytest               # tests unitaires
 ```
 
 ## Algorithme en bref
