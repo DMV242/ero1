@@ -1,4 +1,3 @@
-import math
 from cost_model import daily_cost, cost_curve, optimal_fleet
 
 
