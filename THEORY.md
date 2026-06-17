@@ -206,3 +206,29 @@ L'essentiel à retenir :
 - Un **programme linéaire** énonce les règles (couvrir chaque rue ; garder chaque intersection équilibrée ; minimiser le coût) et le solveur trouve les répétitions optimales automatiquement.
 - L'**algorithme de Hierholzer** transforme le décompte du solveur en un **itinéraire ordonné** qu'une déneigeuse peut réellement conduire.
 - Traiter les rues à sens unique comme des arcs (jamais comme des arêtes) est ce qui garde le parcours **légal**.
+
+## 7bis. Priorisation : dégager le réseau structurant d'abord
+
+Toutes les rues ne se valent pas. On classe chaque rue en « prioritaire » (tier 1)
+ou non, selon le scénario, puis on route en **deux phases** :
+
+1. **Phase 1** — couvrir tout le réseau prioritaire au moindre coût, en s'autorisant
+   à traverser les autres rues comme simples connecteurs (c'est le **Problème du
+   Postier Rural** : couvrir un sous-ensemble d'arêtes). L'indicateur clé **T₁** est
+   la durée de cette phase = temps avant que 100 % du réseau prioritaire soit dégagé.
+2. **Phase 2** — couvrir le reste, en réutilisant les rues prioritaires comme connecteurs.
+
+Trois scénarios définissent « prioritaire » différemment : **réseau artériel** (grandes
+voies, tag OSM `highway`), **accès aux services essentiels** (rues proches des hôpitaux,
+écoles, casernes) et **transport collectif** (rues proches des arrêts de bus). Les deux
+derniers reposent sur une proximité géométrique à des points d'intérêt OSM, avec un seuil
+de distance réglable (hypothèse à assumer).
+
+## 8bis. Coût en fonction du nombre de véhicules
+
+Pour `N` véhicules se partageant idéalement le travail (temps/véhicule = T/N) :
+
+    coût(N) = 500·N + 1,1·L + 1,1·min(T, 8N) + 1,3·max(T − 8N, 0)
+
+où `L` est la distance totale (km) et `T = L/10` le temps total (h). La flotte
+optimale est le plus petit `N` éliminant les heures supplémentaires (`T/N ≤ 8`).
