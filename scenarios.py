@@ -5,6 +5,10 @@ Cette première partie ne contient que des helpers PURS (testables hors-ligne) ;
 l'orchestration OSM est ajoutée ensuite.
 """
 
+import json
+import csv
+import os
+
 from snowplow_routing import load_sector_osmnx, osmnx_to_graph, solve_sector, build_route
 from cost_model import daily_cost, cost_curve, optimal_fleet
 import priorities
@@ -143,3 +147,81 @@ def run_baseline(place, n_vehicles=None, n_max=10):
         "nb_vehicules_8h": optimal_fleet(h),
         "route": route,
     }
+
+
+SECTORS = {
+    "outremont": "Outremont, Montréal, Québec, Canada",
+    "verdun": "Verdun, Montréal, Québec, Canada",
+    "anjou": "Anjou, Montréal, Québec, Canada",
+    "riviere-des-prairies-pointe-aux-trembles":
+        "Rivière-des-Prairies–Pointe-aux-Trembles, Montréal, Québec, Canada",
+}
+SECTORS_DIR = "sectors"
+
+
+def save_map(place, priority, out_png):
+    """Carte : réseau gris + réseau prioritaire surligné (rouge)."""
+    import osmnx as ox
+    import networkx as nx
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    G = load_sector_osmnx(place=place)
+    if G.number_of_nodes() > 0:
+        scc = max(nx.strongly_connected_components(G), key=len)
+        G = G.subgraph(scc).copy()
+
+    def is_prio(u, v):
+        return (u, v) in priority or (v, u) in priority
+
+    colors = ["#d62728" if is_prio(u, v) else "#cccccc" for u, v, _ in G.edges(keys=True)]
+    widths = [2.0 if is_prio(u, v) else 0.5 for u, v, _ in G.edges(keys=True)]
+    fig, ax = ox.plot_graph(G, edge_color=colors, edge_linewidth=widths,
+                            node_size=0, show=False, close=False)
+    fig.savefig(out_png, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def export_sector(slug, place, n_vehicles=None):
+    """Calcule les 3 scénarios + baseline d'un secteur et écrit ses sorties."""
+    out_dir = os.path.join(SECTORS_DIR, slug)
+    os.makedirs(out_dir, exist_ok=True)
+    results = {"baseline": run_baseline(place, n_vehicles=n_vehicles)}
+    for scen in SCENARIOS:
+        res = run_scenario(place, scen, n_vehicles=n_vehicles)
+        results[scen] = res
+        priority = {tuple(p) for p in res["priority_streets"]}
+        save_map(place, priority, os.path.join(out_dir, f"carte_{scen}.png"))
+    with open(os.path.join(out_dir, "resultats.json"), "w", encoding="utf-8") as f:
+        json.dump(results, f, ensure_ascii=False, indent=2, default=str)
+    return results
+
+
+def run_all(n_vehicles=None):
+    """Calcule tous les secteurs et écrit le comparatif CSV."""
+    rows = []
+    for slug, place in SECTORS.items():
+        res = export_sector(slug, place, n_vehicles=n_vehicles)
+        for scen, r in res.items():
+            rows.append({
+                "secteur": slug, "scenario": scen,
+                "cout_total": r["cout_total"], "km_total": r["km_total"],
+                "heures_total": r["heures_total"], "part_a_vide": r["part_a_vide"],
+                "nb_vehicules_8h": r["nb_vehicules_8h"],
+                "T1": r.get("T1_reseau_prioritaire_h", ""),
+            })
+    with open("comparaison_scenarios.csv", "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+    return rows
+
+
+if __name__ == "__main__":
+    import sys
+    if "--all" in sys.argv:
+        run_all()
+        print("Écrit : sectors/ et comparaison_scenarios.csv")
+    else:
+        print("Usage : python scenarios.py --all")
