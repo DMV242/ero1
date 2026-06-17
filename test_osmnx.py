@@ -3,7 +3,6 @@ Test avec OSMnx: télécharge un petit secteur de Montréal et fait tourner le s
 """
 
 import sys
-import networkx as nx
 from snowplow_routing import (
     load_sector_osmnx,
     osmnx_to_graph,
@@ -12,19 +11,15 @@ from snowplow_routing import (
 )
 
 # Petit secteur autour d'Outremont pour que le test reste rapide
-PLACE = "Outremont, Montréal, Québec, Canada"
+PLACE = " Montréal"
 
 print(f"[1/4] Téléchargement du réseau OSM : {PLACE}")
 G = load_sector_osmnx(place=PLACE)
 print(f"      {len(G.nodes())} noeuds, {len(G.edges())} arcs")
 
-# Garde uniquement la plus grande composante fortement connexe
-scc = max(nx.strongly_connected_components(G), key=len)
-G = G.subgraph(scc).copy()
-print(f"      SCC: {len(G.nodes())} noeuds, {len(G.edges())} arcs")
-
 print("[2/4] Conversion en (vertices, edges, arcs) ...")
-vertices, edges, arcs = osmnx_to_graph(G)
+print("      (réduction à la plus grande composante fortement connexe)")
+vertices, edges, arcs, lengths = osmnx_to_graph(G)
 print(
     f"      {len(vertices)} sommets | {len(edges)} edges (2-sens) | {len(arcs)} arcs (1-sens)"
 )

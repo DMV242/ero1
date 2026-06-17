@@ -147,7 +147,7 @@ def load_sector_osmnx(place=None, point=None, radius_m=None):
 
 def osmnx_to_graph(G):
     """
-    Convert an OSMnx MultiDiGraph into (vertices, edges, arcs) for the solver.
+    Convert an OSMnx MultiDiGraph into (vertices, edges, arcs, lengths) for the solver.
 
     OSMnx already returns a DIRECTED graph: a two-way street appears as TWO
     opposite arcs; a one-way street as a single arc. We regroup by vertex pair:
@@ -172,9 +172,11 @@ def osmnx_to_graph(G):
     vertices = list(G.nodes())
 
     arc_cost = {}
+    lengths = {}
     for u, v, data in G.edges(data=True):
         length_m = data.get("length", 0.0)
         arc_cost[(u, v)] = segment_cost(length_m)
+        lengths[(u, v)] = length_m
 
     edges, arcs, seen = [], [], set()
     for (u, v), c in arc_cost.items():
@@ -188,7 +190,7 @@ def osmnx_to_graph(G):
             arcs.append((u, v, round(c, 4)))
             seen.add((u, v))
 
-    return vertices, edges, arcs
+    return vertices, edges, arcs, lengths
 
 
 if __name__ == "__main__":
