@@ -2,3 +2,4 @@ ortools
 ruff
 networkx
 pytest
+shapely

@@ -64,3 +64,38 @@ def essential_services(G, place, dist=150.0,
     pois_proj = ox.projection.project_gdf(pois, to_crs=G_proj.graph["crs"])
     points_xy = [(geom.centroid.x, geom.centroid.y) for geom in pois_proj.geometry]
     return streets_near_points(G_proj, points_xy, dist)
+
+
+def streets_intersecting_lines(G_proj, lines, buffer_m):
+    """(u,v) dont le segment passe à <= buffer_m d'une des lignes (LineString projetées)."""
+    from shapely.geometry import LineString
+
+    buffered = [ln.buffer(buffer_m) for ln in lines]
+    prio = set()
+    for u, v, data in G_proj.edges(data=True):
+        geom = data.get("geometry")
+        if geom is None:
+            ax, ay = G_proj.nodes[u]["x"], G_proj.nodes[u]["y"]
+            bx, by = G_proj.nodes[v]["x"], G_proj.nodes[v]["y"]
+            geom = LineString([(ax, ay), (bx, by)])
+        if any(geom.intersects(b) for b in buffered):
+            prio.add((u, v))
+    return prio
+
+
+def transit(G, place, buffer_m=20.0):
+    """Tier 1 = rues recouvertes par une ligne de bus (relations route=bus OSM)."""
+    import osmnx as ox
+
+    routes = ox.features_from_place(place, tags={"route": "bus"})
+    G_proj = ox.project_graph(G)
+    routes_proj = ox.projection.project_gdf(routes, to_crs=G_proj.graph["crs"])
+    flat = []
+    for geom in routes_proj.geometry:
+        if geom is None:
+            continue
+        if geom.geom_type == "MultiLineString":
+            flat.extend(geom.geoms)
+        elif geom.geom_type == "LineString":
+            flat.append(geom)
+    return streets_intersecting_lines(G_proj, flat, buffer_m)
