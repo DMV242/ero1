@@ -66,7 +66,7 @@ def coverage_over_time(route, lengths, priority, times_h):
     result = {}
     for tq in times_h:
         done_m = sum(m for (tc, m) in cleared if tc <= tq)
-        result[tq] = (done_m / total_priority_m) if total_priority_m > 0 else 0.0
+        result[tq] = float(done_m / total_priority_m) if total_priority_m > 0 else 0.0
     return result
 
 
