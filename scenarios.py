@@ -1,15 +1,18 @@
-"""Orchestration des scénarios de priorisation : routage en 2 phases,
-calcul des indicateurs, exports (JSON, GeoJSON, cartes) et comparatif.
-
-Cette première partie ne contient que des helpers PURS (testables hors-ligne) ;
-l'orchestration OSM est ajoutée ensuite.
+"""Orchestration des scénarios de priorisation : routage en 2 phases (Postier
+Rural), calcul des indicateurs, exports (JSON, cartes PNG) et comparatif CSV.
 """
 
 import json
 import csv
 import os
 
-from snowplow_routing import load_sector_osmnx, osmnx_to_graph, solve_sector, build_route
+from snowplow_routing import (
+    load_sector_osmnx,
+    osmnx_to_graph,
+    solve_sector,
+    build_route_all,
+    largest_strongly_connected_subgraph,
+)
 from cost_model import daily_cost, cost_curve, optimal_fleet
 import priorities
 
@@ -77,18 +80,16 @@ SCENARIOS = {
 }
 
 
-def _solve_phase(vertices, edges, arcs, lengths, required, fallback_start):
+def _solve_phase(vertices, edges, arcs, lengths, required):
     """Résout une phase (Postier Rural sur `required`) et renvoie (route, km, h, passes).
 
-    Le point de départ de Hierholzer doit être un nœud RÉELLEMENT parcouru, sinon
-    la route serait dégénérée (la phase ne couvre qu'un sous-ensemble du graphe).
-    """
+    build_route_all couvre TOUS les arcs parcourus, y compris quand la solution
+    optimale forme plusieurs circuits disjoints (réseau prioritaire dispersé)."""
     result = solve_sector(vertices, edges, arcs, required=required)
     if result is None:
         raise RuntimeError("Phase infaisable (graphe non fortement connexe ?).")
     _, passes = result
-    start = next((i for (i, j), n in passes.items() if n > 0), fallback_start)
-    route = build_route(passes, start=start)
+    route = build_route_all(passes)
     km, hours = route_metrics(passes, lengths)
     return route, km, hours, passes
 
@@ -97,14 +98,12 @@ def run_scenario(place, scenario, n_vehicles=None, n_max=10):
     """Route un secteur en 2 phases pour un scénario et renvoie les indicateurs."""
     G = load_sector_osmnx(place=place)
     vertices, edges, arcs, lengths = osmnx_to_graph(G)
-    fallback = vertices[0]
-
     all_streets = {(i, j) for i, j, _ in edges} | {(i, j) for i, j, _ in arcs}
     priority = SCENARIOS[scenario](G, place) & all_streets
     rest = all_streets - priority
 
-    route1, km1, h1, passes1 = _solve_phase(vertices, edges, arcs, lengths, priority, fallback)
-    route2, km2, h2, passes2 = _solve_phase(vertices, edges, arcs, lengths, rest, fallback)
+    route1, km1, h1, passes1 = _solve_phase(vertices, edges, arcs, lengths, priority)
+    route2, km2, h2, passes2 = _solve_phase(vertices, edges, arcs, lengths, rest)
 
     total_km, total_h = km1 + km2, h1 + h2
     net_km = network_length_km(all_streets, lengths)
@@ -134,8 +133,7 @@ def run_baseline(place, n_vehicles=None, n_max=10):
     """Postier Chinois uniforme (toutes rues, une phase) — ligne de base."""
     G = load_sector_osmnx(place=place)
     vertices, edges, arcs, lengths = osmnx_to_graph(G)
-    fallback = vertices[0]
-    route, km, h, _ = _solve_phase(vertices, edges, arcs, lengths, None, fallback)
+    route, km, h, _ = _solve_phase(vertices, edges, arcs, lengths, None)
     net_km = network_length_km({(i, j) for i, j, _ in edges} | {(i, j) for i, j, _ in arcs}, lengths)
     fleet = n_vehicles or optimal_fleet(h)
     return {
@@ -162,15 +160,11 @@ SECTORS_DIR = "sectors"
 def save_map(place, priority, out_png):
     """Carte : réseau gris + réseau prioritaire surligné (rouge)."""
     import osmnx as ox
-    import networkx as nx
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    G = load_sector_osmnx(place=place)
-    if G.number_of_nodes() > 0:
-        scc = max(nx.strongly_connected_components(G), key=len)
-        G = G.subgraph(scc).copy()
+    G = largest_strongly_connected_subgraph(load_sector_osmnx(place=place))
 
     def is_prio(u, v):
         return (u, v) in priority or (v, u) in priority

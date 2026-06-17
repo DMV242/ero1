@@ -26,7 +26,9 @@ SPEED_KMH = 10.0
 
 
 def segment_cost(length_m):
-    """Cost of a single street segment from its length in metres."""
+    """Cost of a single street segment from its length in metres.
+
+    A missing OSM `length` defaults to 0 (near-universal on `drive` networks)."""
     length_km = length_m / 1000.0
     time_h = length_km / SPEED_KMH
     return COST_PER_KM * length_km + COST_PER_HOUR * time_h
@@ -89,27 +91,16 @@ def solve_sector(vertices, edges, arcs, required=None, backend="CBC"):
     return solver.Objective().Value(), passes
 
 
-def build_route(passes, start):
-    """
-    Turn the LP's arc multiset into an ORDERED sequence of vertices
-    (an Eulerian circuit) using Hierholzer's algorithm.
-
-    passes : dict {(i, j): number of passes}  -- output of solve_sector
-    start  : starting vertex (the plow returns here at the end)
-    Returns a list of vertices [start, ..., start].
-
-    Assumes the augmented graph is connected and balanced. Flow conservation
-    guarantees balance; connectivity must hold in the input data.
-    """
-    remaining = {arc: n for arc, n in passes.items() if n > 0}
-
+def _hierholzer(remaining, start):
+    """Eulerian circuit through the component reachable from `start`, consuming
+    arcs from `remaining` (a dict {(i,j): count}) in place."""
     out_arcs = defaultdict(list)
     for (i, j), n in remaining.items():
-        out_arcs[i].append(j)
+        if n > 0:
+            out_arcs[i].append(j)
 
     route = []
     stack = [start]
-
     while stack:
         v = stack[-1]
         nxt = None
@@ -122,9 +113,49 @@ def build_route(passes, start):
             stack.append(nxt)
         else:
             route.append(stack.pop())
-
     route.reverse()
     return route
+
+
+def build_route(passes, start):
+    """Single closed Eulerian circuit from `start` (Hierholzer).
+
+    passes : dict {(i, j): number of passes}  -- output of solve_sector
+    start  : starting vertex (the plow returns here at the end)
+    Returns a list of vertices [start, ..., start].
+
+    Assumes the driven arcs form ONE connected, balanced component (true for the
+    uniform Chinese Postman over a strongly connected sector). For a sparse Rural
+    Postman phase whose driven arcs may be disconnected, use build_route_all."""
+    remaining = {arc: n for arc, n in passes.items() if n > 0}
+    return _hierholzer(remaining, start)
+
+
+def build_route_all(passes):
+    """Ordered route covering EVERY driven arc, even when they form several
+    disconnected balanced circuits (the usual case for a sparse Rural Postman
+    phase). Returns the concatenation of one Eulerian circuit per component; for
+    a connected driven graph this equals build_route. Transitions between
+    components are not explicitly routed (the plow is assumed to deadhead)."""
+    remaining = {arc: n for arc, n in passes.items() if n > 0}
+    full = []
+    while any(n > 0 for n in remaining.values()):
+        start = next(arc[0] for arc, n in remaining.items() if n > 0)
+        full.extend(_hierholzer(remaining, start))
+    return full
+
+
+def largest_strongly_connected_subgraph(G):
+    """Return G reduced to its largest strongly connected component (a copy).
+
+    Guarantees the ILP flow-conservation is feasible, and lets maps display
+    exactly what is routed (same reduction everywhere)."""
+    import networkx as nx
+
+    if G.number_of_nodes() == 0:
+        return G
+    scc = max(nx.strongly_connected_components(G), key=len)
+    return G.subgraph(scc).copy()
 
 
 def load_sector_osmnx(place=None, point=None, radius_m=None):
@@ -163,11 +194,7 @@ def osmnx_to_graph(G):
     constraint infeasible (solve_sector would return None). We therefore keep
     only the largest strongly connected component, which is always solver-ready.
     """
-    import networkx as nx
-
-    if G.number_of_nodes() > 0:
-        scc = max(nx.strongly_connected_components(G), key=len)
-        G = G.subgraph(scc).copy()
+    G = largest_strongly_connected_subgraph(G)
 
     vertices = list(G.nodes())
 
