@@ -1117,9 +1117,12 @@ git commit -m "feat: add Streamlit graphical interface"
 - [ ] **Step 1: Créer `AUTHORS`**
 
 ```
-David MVOULA
+amokrane.ait-taouit
+imran.belmessaoud
+emmanueli-david-valle.mvoula-moukouyou
+amar.kaci
+christina.gapy
 ```
-> Compléter avec les autres membres de l'équipe.
 
 - [ ] **Step 2: Mettre à jour la section « Structure du projet » de `README.md`**
 
