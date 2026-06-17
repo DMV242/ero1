@@ -58,44 +58,32 @@ def essential_services(G, place, dist=150.0,
                        amenities=("hospital", "school", "fire_station", "clinic")):
     """Tier 1 = rues à <= dist m d'un service essentiel (POI OSM)."""
     import osmnx as ox
+    from osmnx._errors import InsufficientResponseError
 
-    pois = ox.features_from_place(place, tags={"amenity": list(amenities)})
+    try:
+        pois = ox.features_from_place(place, tags={"amenity": list(amenities)})
+    except InsufficientResponseError:
+        return set()
     G_proj = ox.project_graph(G)
     pois_proj = ox.projection.project_gdf(pois, to_crs=G_proj.graph["crs"])
     points_xy = [(geom.centroid.x, geom.centroid.y) for geom in pois_proj.geometry]
     return streets_near_points(G_proj, points_xy, dist)
 
 
-def streets_intersecting_lines(G_proj, lines, buffer_m):
-    """(u,v) dont le segment passe à <= buffer_m d'une des lignes (LineString projetées)."""
-    from shapely.geometry import LineString
+def transit(G, place, dist=100.0):
+    """Tier 1 = rues à <= dist m d'un arrêt de bus (réseau desservi par le transport collectif).
 
-    buffered = [ln.buffer(buffer_m) for ln in lines]
-    prio = set()
-    for u, v, data in G_proj.edges(data=True):
-        geom = data.get("geometry")
-        if geom is None:
-            ax, ay = G_proj.nodes[u]["x"], G_proj.nodes[u]["y"]
-            bx, by = G_proj.nodes[v]["x"], G_proj.nodes[v]["y"]
-            geom = LineString([(ax, ay), (bx, by)])
-        if any(geom.intersects(b) for b in buffered):
-            prio.add((u, v))
-    return prio
-
-
-def transit(G, place, buffer_m=20.0):
-    """Tier 1 = rues recouvertes par une ligne de bus (relations route=bus OSM)."""
+    On utilise les arrêts de bus (highway=bus_stop), bien mieux renseignés dans OSM que
+    les relations route=bus (souvent absentes sur le petit polygone d'un arrondissement).
+    """
     import osmnx as ox
+    from osmnx._errors import InsufficientResponseError
 
-    routes = ox.features_from_place(place, tags={"route": "bus"})
+    try:
+        stops = ox.features_from_place(place, tags={"highway": "bus_stop"})
+    except InsufficientResponseError:
+        return set()
     G_proj = ox.project_graph(G)
-    routes_proj = ox.projection.project_gdf(routes, to_crs=G_proj.graph["crs"])
-    flat = []
-    for geom in routes_proj.geometry:
-        if geom is None:
-            continue
-        if geom.geom_type == "MultiLineString":
-            flat.extend(geom.geoms)
-        elif geom.geom_type == "LineString":
-            flat.append(geom)
-    return streets_intersecting_lines(G_proj, flat, buffer_m)
+    stops_proj = ox.projection.project_gdf(stops, to_crs=G_proj.graph["crs"])
+    points_xy = [(geom.centroid.x, geom.centroid.y) for geom in stops_proj.geometry]
+    return streets_near_points(G_proj, points_xy, dist)

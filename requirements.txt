@@ -2,6 +2,5 @@ ortools
 ruff
 networkx
 pytest
-shapely
 matplotlib
 geopandas
