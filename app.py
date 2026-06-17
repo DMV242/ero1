@@ -6,11 +6,23 @@ Lancement : streamlit run app.py
 """
 import json
 import os
+import sys
 
 import pandas as pd
 import streamlit as st
+from streamlit.runtime.scriptrunner import get_script_run_ctx
 
 from scenarios import SECTORS, SECTORS_DIR
+
+# Garde-fou : cette interface doit être lancée via le runtime Streamlit, pas en
+# tant que script Python ordinaire (sinon les st.* tournent « à vide » et aucun
+# serveur ne démarre).
+if get_script_run_ctx() is None:
+    sys.stderr.write(
+        "\nCette interface se lance avec Streamlit, pas avec python :\n\n"
+        "    streamlit run app.py\n\n"
+    )
+    raise SystemExit(1)
 
 st.set_page_config(page_title="Déneiger Montréal", layout="wide")
 st.title("Déneiger Montréal — priorisation des tournées")
