@@ -10,8 +10,9 @@ from snowplow_routing import (
     build_route,
 )
 
-# Petit secteur autour d'Outremont pour que le test reste rapide
-PLACE = " Montréal"
+# Petit secteur (Outremont) pour que le test reste rapide.
+# Montréal entier est trop gros ; on teste sur les sous-secteurs de l'étude.
+PLACE = "Outremont, Montréal, Québec, Canada"
 
 print(f"[1/4] Téléchargement du réseau OSM : {PLACE}")
 G = load_sector_osmnx(place=PLACE)
