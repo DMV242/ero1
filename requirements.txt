@@ -1,2 +1,4 @@
 ortools
 ruff
+networkx
+pytest

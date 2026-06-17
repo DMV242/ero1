@@ -32,7 +32,7 @@ def segment_cost(length_m):
     return COST_PER_KM * length_km + COST_PER_HOUR * time_h
 
 
-def solve_sector(vertices, edges, arcs, backend="CBC"):
+def solve_sector(vertices, edges, arcs, required=None, backend="CBC"):
     """
     vertices : list of vertex ids, e.g. ["A", "B", "C", "D", "E"]
     edges    : TWO-WAY streets, list of (i, j, cost)
@@ -54,6 +54,11 @@ def solve_sector(vertices, edges, arcs, backend="CBC"):
     for i, j, c in arcs:
         cost[(i, j)] = c
 
+    def is_required(i, j):
+        if required is None:
+            return True
+        return (i, j) in required or (j, i) in required
+
     solver = pywraplp.Solver.CreateSolver(backend)
     if not solver:
         return None
@@ -62,10 +67,12 @@ def solve_sector(vertices, edges, arcs, backend="CBC"):
     x = {(i, j): solver.IntVar(0, infinity, f"x_{i}_{j}") for (i, j) in cost}
 
     for i, j in edge_pairs:
-        solver.Add(x[(i, j)] + x[(j, i)] >= 1)
+        if is_required(i, j):
+            solver.Add(x[(i, j)] + x[(j, i)] >= 1)
 
     for i, j, c in arcs:
-        solver.Add(x[(i, j)] >= 1)
+        if is_required(i, j):
+            solver.Add(x[(i, j)] >= 1)
 
     for v in vertices:
         inflow = solver.Sum([x[(i, j)] for (i, j) in cost if j == v])
@@ -150,7 +157,18 @@ def osmnx_to_graph(G):
     This rule is the structural enforcement of the traffic code: a one-way
     street never gets a reverse variable, so the plow can never be routed
     against the legal direction.
+
+    The raw OSM graph is not always strongly connected: one-way streets can
+    isolate nodes (in-only or out-only), which makes the ILP flow-conservation
+    constraint infeasible (solve_sector would return None). We therefore keep
+    only the largest strongly connected component, which is always solver-ready.
     """
+    import networkx as nx
+
+    if G.number_of_nodes() > 0:
+        scc = max(nx.strongly_connected_components(G), key=len)
+        G = G.subgraph(scc).copy()
+
     vertices = list(G.nodes())
 
     arc_cost = {}
