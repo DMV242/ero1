@@ -76,10 +76,18 @@ def solve_sector(vertices, edges, arcs, required=None, backend="CBC"):
         if is_required(i, j):
             solver.Add(x[(i, j)] >= 1)
 
+    # Flow conservation: in-degree == out-degree at each vertex.
+    # Pre-group arcs by head/tail so this is O(E + V) instead of O(V * E)
+    # (the naive "scan every arc for every vertex" is quadratic and makes
+    # large sectors like RDP-PAT extremely slow to build).
+    incoming = defaultdict(list)
+    outgoing = defaultdict(list)
+    for (i, j) in cost:
+        outgoing[i].append(x[(i, j)])
+        incoming[j].append(x[(i, j)])
+
     for v in vertices:
-        inflow = solver.Sum([x[(i, j)] for (i, j) in cost if j == v])
-        outflow = solver.Sum([x[(i, j)] for (i, j) in cost if i == v])
-        solver.Add(inflow == outflow)
+        solver.Add(solver.Sum(incoming[v]) == solver.Sum(outgoing[v]))
 
     solver.Minimize(solver.Sum([cost[(i, j)] * x[(i, j)] for (i, j) in cost]))
 
