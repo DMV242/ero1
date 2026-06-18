@@ -5,6 +5,7 @@ Rural), calcul des indicateurs, exports (JSON, cartes PNG) et comparatif CSV.
 import json
 import csv
 import os
+import time
 
 from snowplow_routing import (
     load_sector_osmnx,
@@ -17,6 +18,11 @@ from cost_model import daily_cost, cost_curve, optimal_fleet
 import priorities
 
 SPEED_KMH = 10.0
+
+
+def _log(msg):
+    """Message de progression, affiché immédiatement (sans buffer)."""
+    print(msg, flush=True)
 
 
 def route_metrics(passes, lengths):
@@ -80,30 +86,43 @@ SCENARIOS = {
 }
 
 
-def _solve_phase(vertices, edges, arcs, lengths, required):
+def _solve_phase(vertices, edges, arcs, lengths, required, verbose=False, label=""):
     """Résout une phase (Postier Rural sur `required`) et renvoie (route, km, h, passes).
 
     build_route_all couvre TOUS les arcs parcourus, y compris quand la solution
     optimale forme plusieurs circuits disjoints (réseau prioritaire dispersé)."""
+    if verbose:
+        n_req = "toutes" if required is None else len(required)
+        _log(f"      • {label} : résolution ILP ({n_req} rues à couvrir)…")
     result = solve_sector(vertices, edges, arcs, required=required)
     if result is None:
         raise RuntimeError("Phase infaisable (graphe non fortement connexe ?).")
     _, passes = result
     route = build_route_all(passes)
     km, hours = route_metrics(passes, lengths)
+    if verbose:
+        _log(f"        → {km:.1f} km, {hours:.2f} h")
     return route, km, hours, passes
 
 
-def run_scenario(place, scenario, n_vehicles=None, n_max=10):
+def run_scenario(place, scenario, n_vehicles=None, n_max=10, verbose=False):
     """Route un secteur en 2 phases pour un scénario et renvoie les indicateurs."""
+    if verbose:
+        _log("    chargement du réseau OSM…")
     G = load_sector_osmnx(place=place)
     vertices, edges, arcs, lengths = osmnx_to_graph(G)
     all_streets = {(i, j) for i, j, _ in edges} | {(i, j) for i, j, _ in arcs}
+    if verbose:
+        _log(f"    {len(vertices)} sommets ; classification « {scenario} »…")
     priority = SCENARIOS[scenario](G, place) & all_streets
     rest = all_streets - priority
+    if verbose:
+        _log(f"    {len(priority)} rues prioritaires sur {len(all_streets)}")
 
-    route1, km1, h1, passes1 = _solve_phase(vertices, edges, arcs, lengths, priority)
-    route2, km2, h2, passes2 = _solve_phase(vertices, edges, arcs, lengths, rest)
+    route1, km1, h1, passes1 = _solve_phase(
+        vertices, edges, arcs, lengths, priority, verbose, "phase 1 — réseau prioritaire")
+    route2, km2, h2, passes2 = _solve_phase(
+        vertices, edges, arcs, lengths, rest, verbose, "phase 2 — reste du réseau")
 
     total_km, total_h = km1 + km2, h1 + h2
     net_km = network_length_km(all_streets, lengths)
@@ -129,11 +148,14 @@ def run_scenario(place, scenario, n_vehicles=None, n_max=10):
     }
 
 
-def run_baseline(place, n_vehicles=None, n_max=10):
+def run_baseline(place, n_vehicles=None, n_max=10, verbose=False):
     """Postier Chinois uniforme (toutes rues, une phase) — ligne de base."""
+    if verbose:
+        _log("    chargement du réseau OSM…")
     G = load_sector_osmnx(place=place)
     vertices, edges, arcs, lengths = osmnx_to_graph(G)
-    route, km, h, _ = _solve_phase(vertices, edges, arcs, lengths, None)
+    route, km, h, _ = _solve_phase(
+        vertices, edges, arcs, lengths, None, verbose, "tournée uniforme")
     net_km = network_length_km({(i, j) for i, j, _ in edges} | {(i, j) for i, j, _ in arcs}, lengths)
     fleet = n_vehicles or optimal_fleet(h)
     return {
@@ -179,23 +201,41 @@ def save_map(place, priority, out_png):
 
 def export_sector(slug, place, n_vehicles=None):
     """Calcule les 3 scénarios + baseline d'un secteur et écrit ses sorties."""
+    _log(f"\n── Secteur : {slug}  ({place})")
     out_dir = os.path.join(SECTORS_DIR, slug)
     os.makedirs(out_dir, exist_ok=True)
-    results = {"baseline": run_baseline(place, n_vehicles=n_vehicles)}
+
+    t = time.time()
+    _log("  [baseline] Postier Chinois uniforme")
+    results = {"baseline": run_baseline(place, n_vehicles=n_vehicles, verbose=True)}
+    _log(f"  [baseline] ✓ coût {results['baseline']['cout_total']} $  ({time.time() - t:.0f}s)")
+
     for scen in SCENARIOS:
-        res = run_scenario(place, scen, n_vehicles=n_vehicles)
+        t = time.time()
+        _log(f"  [{scen}] calcul des 2 phases…")
+        res = run_scenario(place, scen, n_vehicles=n_vehicles, verbose=True)
         results[scen] = res
         priority = {tuple(p) for p in res["priority_streets"]}
+        _log(f"  [{scen}] génération de la carte…")
         save_map(place, priority, os.path.join(out_dir, f"carte_{scen}.png"))
+        _log(f"  [{scen}] ✓ coût {res['cout_total']} $ | "
+             f"T1 {res['T1_reseau_prioritaire_h']} h  ({time.time() - t:.0f}s)")
+
     with open(os.path.join(out_dir, "resultats.json"), "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2, default=str)
+    _log(f"  → écrit {out_dir}/resultats.json (+ 3 cartes)")
     return results
 
 
 def run_all(n_vehicles=None):
     """Calcule tous les secteurs et écrit le comparatif CSV."""
+    sectors = list(SECTORS.items())
+    _log(f"=== Génération de {len(sectors)} secteurs "
+         "(quelques minutes, RDP-PAT est le plus long) ===")
+    t0 = time.time()
     rows = []
-    for slug, place in SECTORS.items():
+    for i, (slug, place) in enumerate(sectors, 1):
+        _log(f"\n========== [{i}/{len(sectors)}] {slug} ==========")
         res = export_sector(slug, place, n_vehicles=n_vehicles)
         for scen, r in res.items():
             rows.append({
@@ -209,13 +249,15 @@ def run_all(n_vehicles=None):
         writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         writer.writeheader()
         writer.writerows(rows)
+    _log(f"\n✓ Terminé en {time.time() - t0:.0f}s — "
+         f"sectors/ + comparaison_scenarios.csv ({len(rows)} lignes)")
     return rows
 
 
 if __name__ == "__main__":
     import sys
+
     if "--all" in sys.argv:
         run_all()
-        print("Écrit : sectors/ et comparaison_scenarios.csv")
     else:
         print("Usage : python scenarios.py --all")
