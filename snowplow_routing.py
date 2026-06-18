@@ -34,12 +34,13 @@ def segment_cost(length_m):
     return COST_PER_KM * length_km + COST_PER_HOUR * time_h
 
 
-def solve_sector(vertices, edges, arcs, required=None, backend="CBC"):
+def solve_sector(vertices, edges, arcs, required=None, backend="SAT"):
     """
     vertices : list of vertex ids, e.g. ["A", "B", "C", "D", "E"]
     edges    : TWO-WAY streets, list of (i, j, cost)
     arcs     : ONE-WAY streets,  list of (i, j, cost)  -- from i to j only
-    backend  : OR-Tools backend ("CBC" for integer counts, "SAT" also works)
+    backend  : OR-Tools backend. Default "SAT" (CP-SAT): same optimum as "CBC"
+               but dramatically faster on large sectors. "CBC" also works.
 
     Returns (total_cost, passes) where passes[(i, j)] = number of times the
     plow drives arc i -> j. Returns None if no feasible solution exists.
