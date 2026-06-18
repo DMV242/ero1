@@ -18,6 +18,10 @@ from cost_model import daily_cost, cost_curve, optimal_fleet
 import priorities
 
 SPEED_KMH = 10.0
+# Limite de temps par résolution ILP (s). CP-SAT trouve l'optimum vite sur ces
+# problèmes ; la limite borne surtout la preuve d'optimalité sur les gros secteurs
+# (RDP-PAT) et renvoie la meilleure solution trouvée — quasi gratuit en qualité.
+SOLVE_TIME_LIMIT_S = 20.0
 
 
 def _log(msg):
@@ -94,7 +98,8 @@ def _solve_phase(vertices, edges, arcs, lengths, required, verbose=False, label=
     if verbose:
         n_req = "toutes" if required is None else len(required)
         _log(f"      • {label} : résolution ILP ({n_req} rues à couvrir)…")
-    result = solve_sector(vertices, edges, arcs, required=required)
+    result = solve_sector(vertices, edges, arcs, required=required,
+                          time_limit_s=SOLVE_TIME_LIMIT_S)
     if result is None:
         raise RuntimeError("Phase infaisable (graphe non fortement connexe ?).")
     _, passes = result

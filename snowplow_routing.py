@@ -34,7 +34,7 @@ def segment_cost(length_m):
     return COST_PER_KM * length_km + COST_PER_HOUR * time_h
 
 
-def solve_sector(vertices, edges, arcs, required=None, backend="SAT"):
+def solve_sector(vertices, edges, arcs, required=None, backend="SAT", time_limit_s=None):
     """
     vertices : list of vertex ids, e.g. ["A", "B", "C", "D", "E"]
     edges    : TWO-WAY streets, list of (i, j, cost)
@@ -65,6 +65,8 @@ def solve_sector(vertices, edges, arcs, required=None, backend="SAT"):
     solver = pywraplp.Solver.CreateSolver(backend)
     if not solver:
         return None
+    if time_limit_s is not None:
+        solver.SetTimeLimit(int(time_limit_s * 1000))
     infinity = solver.infinity()
 
     x = {(i, j): solver.IntVar(0, infinity, f"x_{i}_{j}") for (i, j) in cost}
