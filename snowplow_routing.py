@@ -34,12 +34,13 @@ def segment_cost(length_m):
     return COST_PER_KM * length_km + COST_PER_HOUR * time_h
 
 
-def solve_sector(vertices, edges, arcs, required=None, backend="CBC"):
+def solve_sector(vertices, edges, arcs, required=None, backend="SAT", time_limit_s=None):
     """
     vertices : list of vertex ids, e.g. ["A", "B", "C", "D", "E"]
     edges    : TWO-WAY streets, list of (i, j, cost)
     arcs     : ONE-WAY streets,  list of (i, j, cost)  -- from i to j only
-    backend  : OR-Tools backend ("CBC" for integer counts, "SAT" also works)
+    backend  : OR-Tools backend. Default "SAT" (CP-SAT): same optimum as "CBC"
+               but dramatically faster on large sectors. "CBC" also works.
 
     Returns (total_cost, passes) where passes[(i, j)] = number of times the
     plow drives arc i -> j. Returns None if no feasible solution exists.
@@ -61,34 +62,54 @@ def solve_sector(vertices, edges, arcs, required=None, backend="CBC"):
             return True
         return (i, j) in required or (j, i) in required
 
-    solver = pywraplp.Solver.CreateSolver(backend)
-    if not solver:
-        return None
-    infinity = solver.infinity()
+    def _attempt(limit):
+        """Build and solve the ILP once. `limit` (s) caps the solve, or None for
+        no cap. Returns (cost, passes) or None if no feasible solution is found."""
+        solver = pywraplp.Solver.CreateSolver(backend)
+        if not solver:
+            return None
+        if limit is not None:
+            solver.SetTimeLimit(int(limit * 1000))
+        infinity = solver.infinity()
 
-    x = {(i, j): solver.IntVar(0, infinity, f"x_{i}_{j}") for (i, j) in cost}
+        x = {(i, j): solver.IntVar(0, infinity, f"x_{i}_{j}") for (i, j) in cost}
 
-    for i, j in edge_pairs:
-        if is_required(i, j):
-            solver.Add(x[(i, j)] + x[(j, i)] >= 1)
+        for i, j in edge_pairs:
+            if is_required(i, j):
+                solver.Add(x[(i, j)] + x[(j, i)] >= 1)
 
-    for i, j, c in arcs:
-        if is_required(i, j):
-            solver.Add(x[(i, j)] >= 1)
+        for i, j, c in arcs:
+            if is_required(i, j):
+                solver.Add(x[(i, j)] >= 1)
 
-    for v in vertices:
-        inflow = solver.Sum([x[(i, j)] for (i, j) in cost if j == v])
-        outflow = solver.Sum([x[(i, j)] for (i, j) in cost if i == v])
-        solver.Add(inflow == outflow)
+        # Flow conservation: in-degree == out-degree at each vertex.
+        # Pre-group arcs by head/tail so this is O(E + V) instead of O(V * E)
+        # (the naive "scan every arc for every vertex" is quadratic and makes
+        # large sectors like RDP-PAT extremely slow to build).
+        incoming = defaultdict(list)
+        outgoing = defaultdict(list)
+        for (i, j) in cost:
+            outgoing[i].append(x[(i, j)])
+            incoming[j].append(x[(i, j)])
 
-    solver.Minimize(solver.Sum([cost[(i, j)] * x[(i, j)] for (i, j) in cost]))
+        for v in vertices:
+            solver.Add(solver.Sum(incoming[v]) == solver.Sum(outgoing[v]))
 
-    status = solver.Solve()
-    if status not in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
-        return None
+        solver.Minimize(solver.Sum([cost[(i, j)] * x[(i, j)] for (i, j) in cost]))
 
-    passes = {(i, j): int(round(x[(i, j)].solution_value())) for (i, j) in cost}
-    return solver.Objective().Value(), passes
+        status = solver.Solve()
+        if status not in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
+            return None
+
+        passes = {(i, j): int(round(x[(i, j)].solution_value())) for (i, j) in cost}
+        return solver.Objective().Value(), passes
+
+    result = _attempt(time_limit_s)
+    if result is None and time_limit_s is not None:
+        # The time-limited solve found nothing (large sector under load): retry
+        # without a cap so we always return a valid tour rather than crashing.
+        result = _attempt(None)
+    return result
 
 
 def _hierholzer(remaining, start):
